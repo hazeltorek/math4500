@@ -5,10 +5,18 @@ from qiskit.circuit.library import quantum_volume
 circuit = quantum_volume(num_qubits =  6, depth = 6)
 circuit.draw(output = "mpl")
 
+# create hardware topology just as a set of edges
+top_L6 = {(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)}
+top_Y6 = {(1, 2), (2, 3), (3, 6), (3, 4), (4, 5)}
+top_G6 = {(1, 2), (2, 3), (4, 5), (5, 6), (1, 4), (2, 5), (3, 6)}
+
+topology = top_L6
+
 # figure out the CPLEX stuff
 # https://github.com/IBMDecisionOptimization/docplex-examples/blob/master/examples/mp/jupyter/tutorials/Linear_Programming.ipynb
 from docplex.mp.model import Model
-import itertools
+from functools import reduce
+import itertools as it
 
 m = Model(name = "circuit-optimizer")
 
@@ -22,4 +30,11 @@ w = m.binary_var_cube(Q, V, T, name = "w")
 
 # setting up decision variables described in 3.1 > Gate Variables and Constraints
 # need to define this one separately for each timestep t since the set of gates is indexed by t
-y = m.binary_var_matrix(name = "y")
+G = list(it.chain(*(list(it.repeat(None, 4)) + [g] for g in [tuple(circuit.find_bit(q).index for q in circuit.data[t].qubits) for t in range(7)])))
+H = list(it.product(range(7), range(7)))
+y = m.binary_var_cube(G, H, T, name = "y")
+
+# constraint: each gate is impl. once
+for (t, g) in it.product(T, G):
+    if g is None: continue
+    m.add_constraint(reduce(lambda x, y: x + y, [y[g][h][t] for h in topology]))
