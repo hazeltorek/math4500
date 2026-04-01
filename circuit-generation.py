@@ -24,6 +24,12 @@ for k in topologies.keys():
 topology = topologies["L6"]
 num_qubits = 6
 
+# assumed fidelity from paper
+beta = {(i, j): 0.9936 for (i, j) in topology}
+
+# epsilon tolerance for CPLEX to work properly with integer values (fp errors can exist)
+epsilon = 1e-6
+
 # generate a 6-qubit example circuit
 circuit = quantum_volume(num_qubits = num_qubits, depth = num_qubits)
 
@@ -52,3 +58,34 @@ N = [{(i, j) for (i, j) in topology if i == n} for n in V]
 x = m.binary_var_dict((q, i, j, t) for t in T[:-1] for i in V for j in N[i] for q in Q)
 
 # TODO: still need to add constraints on x, see page 7  
+
+# dummy timesteps (timesteps with no gates)
+D = [t for t in T if not G[t]]
+
+# z^t = 1 iff qubit x_(q, i, j, t) = 1 (moves at dummy timestep t)
+z = m.binary_var_dict(D, name = "z")
+m.add_constraints(x[q, i, j, t] <= z[t] for t in D for q in Q for (i,j) in topology) # dummy timesteps only 1 when qubit moves
+m.add_constraints(z[D[t]] >= z[D[t+1]] for t in range(len(D)-1))
+# ^ above is symmetry breaking for CPLEX speed (only consider doing dummy timesteps in one order) 
+# can be removed without breaking program if not working
+
+# log prob of circuit success (maximizing, so optimize -o1)
+o1 = m.sum()
+
+# circuit depth (minimizing dummy timesteps, minimize o2)
+o2 = m.sum(z[t] for t in D)
+
+# crosstalk (not sure if we will impl this one)
+# o3 = m.sum()
+
+
+# Sequential Optimization
+
+"""
+m.minimize(-o1)
+m.solve()
+o1_val = m.objective_value
+m.add_constraint(-o1 <= o1_val + epsilon, ctname = "ensure_error_rate_optimality")
+m.minimize(o2)
+m.solve() 
+"""
