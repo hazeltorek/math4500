@@ -1,9 +1,5 @@
-# generate a 6-qubit example circuit
 from qiskit import QuantumCircuit
 from qiskit.circuit.library import quantum_volume
-
-circuit = quantum_volume(num_qubits =  6, depth = 6)
-circuit.draw(output = "mpl")
 
 # create hardware topology just as a set of edges
 top_L6 = {(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)}
@@ -17,7 +13,9 @@ top_G8 = {(1, 2), (2, 3), (3, 4), (5, 6), (6, 7), (7, 8), (1, 5), (2, 6), (3, 7)
 topology = top_L6
 num_qubits = 6
 
-# figure out the CPLEX stuff
+# generate a 6-qubit example circuit
+circuit = quantum_volume(num_qubits = num_qubits, depth = num_qubits)
+
 # https://github.com/IBMDecisionOptimization/docplex-examples/blob/master/examples/mp/jupyter/tutorials/Linear_Programming.ipynb
 from docplex.mp.model import Model
 from functools import reduce
