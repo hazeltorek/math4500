@@ -7,12 +7,12 @@ import itertools as it
 
 # create hardware topology just as a set of edges
 topologies = {
-    "L6": {(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)},
-    "Y6": {(1, 2), (2, 3), (3, 6), (3, 4), (4, 5)},
-    "G6": {(1, 2), (2, 3), (4, 5), (5, 6), (1, 4), (2, 5), (3, 6)},
-    "L8": {(1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, 8)},
-    "Y8": {(1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (4, 7), (7, 8)},
-    "G8": {(1, 2), (2, 3), (3, 4), (5, 6), (6, 7), (7, 8), (1, 5), (2, 6), (3, 7), (4, 8)}
+    "L6": {(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)},
+    "Y6": {(0, 1), (1, 2), (2, 5), (2, 3), (3, 4)},
+    "G6": {(0, 1), (1, 2), (3, 4), (4, 5), (0, 3), (1, 4), (2, 5)},
+    "L8": {(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7)},
+    "Y8": {(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (3, 6), (6, 7)},
+    "G8": {(0, 1), (1, 2), (2, 3), (4, 5), (5, 6), (6, 7), (0, 4), (1, 5), (2, 6), (3, 7)}
 }
 
 # make sure edges are oriented bidirectionally 
@@ -60,13 +60,10 @@ x = m.binary_var_dict((q, i, j, t) for t in T[:-1] for i in V for j in {j for (_
 # TODO: still need to add constraints on x, see page 7  
 
 # dummy timesteps (timesteps with no gates)
-D = [t for t in T if (t % 5 != 0) or not G[t // 5]]
+D = [t for t in T[:-1] if (t % 5 != 0) or not G[t // 5]]
 
 #print(x.keys())
 # z^t = 1 iff qubit x_(q, i, j, t) = 1 (moves at dummy timestep t)
-for (q, (i, j), t) in it.product(Q, topology, D):
-    if q == 0: print((q, i, j, t), " ", (q, i, j, t) in x.keys())
-
 z = m.binary_var_dict(D, name = "z")
 m.add_constraints(m.sum(x[q, i, j, t] for (i, j) in topology) <= z[t] for t in D for q in Q) # dummy timesteps only 1 when qubit moves
 m.add_constraints(z[D[t]] >= z[D[t+1]] for t in range(len(D)-1))
@@ -74,7 +71,7 @@ m.add_constraints(z[D[t]] >= z[D[t+1]] for t in range(len(D)-1))
 # can be removed without breaking program if not working
 
 # log prob of circuit success (maximizing, so optimize -o1)
-o1 = m.sum()
+#o1 = m.sum()
 
 # circuit depth (minimizing dummy timesteps, minimize o2)
 o2 = m.sum(z[t] for t in D)
@@ -84,6 +81,8 @@ o2 = m.sum(z[t] for t in D)
 
 
 # Sequential Optimization
+m.minimize(o2)
+m.solve() 
 
 """
 m.minimize(-o1)
