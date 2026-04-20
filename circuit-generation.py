@@ -55,16 +55,20 @@ y = [m.binary_var_matrix(G[t], topology, name = f"y{t}") for t in V]
 
 # x_(q, i, j, t) = 1 iff qubit q is located at node i at time t and located at node j at time t+1
 N = [{(i, j) for (i, j) in topology if i == n} for n in V]
-x = m.binary_var_dict((q, i, j, t) for t in T[:-1] for i in V for j in N[i] for q in Q)
+x = m.binary_var_dict((q, i, j, t) for t in T[:-1] for i in V for j in {j for (_, j) in N[i] if isinstance((_, j), tuple)}.union({i}) for q in Q)
 
 # TODO: still need to add constraints on x, see page 7  
 
 # dummy timesteps (timesteps with no gates)
-D = [t for t in T if not G[t]]
+D = [t for t in T if (t % 5 != 0) or not G[t // 5]]
 
+#print(x.keys())
 # z^t = 1 iff qubit x_(q, i, j, t) = 1 (moves at dummy timestep t)
+for (q, (i, j), t) in it.product(Q, topology, D):
+    if q == 0: print((q, i, j, t), " ", (q, i, j, t) in x.keys())
+
 z = m.binary_var_dict(D, name = "z")
-m.add_constraints(x[q, i, j, t] <= z[t] for t in D for q in Q for (i,j) in topology) # dummy timesteps only 1 when qubit moves
+m.add_constraints(m.sum(x[q, i, j, t] for (i, j) in topology) <= z[t] for t in D for q in Q) # dummy timesteps only 1 when qubit moves
 m.add_constraints(z[D[t]] >= z[D[t+1]] for t in range(len(D)-1))
 # ^ above is symmetry breaking for CPLEX speed (only consider doing dummy timesteps in one order) 
 # can be removed without breaking program if not working
