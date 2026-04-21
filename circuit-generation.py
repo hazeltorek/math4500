@@ -54,10 +54,20 @@ y = [m.binary_var_matrix(G[t], topology, name = f"y{t}") for t in V]
 # TODO: still need to add constraints on y, this is the bit with mccormick constraints
 
 # x_(q, i, j, t) = 1 iff qubit q is located at node i at time t and located at node j at time t+1
-N = [{(i, j) for (i, j) in topology if i == n} for n in V]
-x = m.binary_var_dict((q, i, j, t) for t in T[:-1] for i in V for j in {j for (_, j) in N[i] if isinstance((_, j), tuple)}.union({i}) for q in Q)
+N = [{j for (i, j) in topology if i == n} for n in V]
+x = m.binary_var_dict((q, i, j, t) for t in T[:-1] for i in V for j in N[i].union({i}) for q in Q)
 
-# TODO: still need to add constraints on x, see page 7  
+# TODO: missing the mcormick bit at the bottom of page 7
+m.add_constraints(w[q, i, t] == x[q, i, i, t] + m.sum(x[q, i, k, t] for k in N[i]) for q in Q for i in V for t in T[:-1])
+m.add_constraints(w[q, i, t] == x[q, i, i, t-1] + m.sum(x[q, k, i, t-1] for k in N[i]) for q in Q for i in V for t in T[1:])
+
+# the paper has the index of t as T[:-1] here, but i think we can restrict to V[:-1] since G is empty on dummy timesteps
+# TODO: do i need to multiply the indices to account for dummy timesteps
+m.add_constraints(x[G[t][0], i, j, t] == x[G[t][1], j, i, t] for t in V[:-1] for (i, j) in topology)
+
+# i believe there is a typo in the paper here: sum index should be G^t not Q^t
+# the paper has the index of t as T[:-1] here, but i think we can restrict to V[:-1] since G is empty on dummy timesteps
+m.add_constraints(m.sum(x[q, i, j, t] for q in set(Q).difference(set(G[t]))) == m.sum(x[p, j, i, t] for p in set(Q).difference(set(G[t]))) for t in V[:-1] for (i, j) in topology)
 
 # dummy timesteps (timesteps with no gates)
 D = [t for t in T[:-1] if (t % 5 != 0) or not G[t // 5]]
@@ -79,10 +89,10 @@ o2 = m.sum(z[t] for t in D)
 # crosstalk (not sure if we will impl this one)
 # o3 = m.sum()
 
-
 # Sequential Optimization
 m.minimize(o2)
 m.solve() 
+m.print_solution()
 
 """
 m.minimize(-o1)
