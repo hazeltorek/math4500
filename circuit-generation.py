@@ -55,7 +55,7 @@ y = [m.binary_var_matrix(G[t], topology, name = f"y{t}") for t in V]
 
 # x_(q, i, j, t) = 1 iff qubit q is located at node i at time t and located at node j at time t+1
 N = [{j for (i, j) in topology if i == n} for n in V]
-x = m.binary_var_dict((q, i, j, t) for t in T[:-1] for i in V for j in N[i].union({i}) for q in Q)
+x = m.binary_var_dict(((q, i, j, t) for t in T[:-1] for i in V for j in N[i].union({i}) for q in Q), name = "x")
 
 # TODO: missing the mcormick bit at the bottom of page 7
 m.add_constraints(w[q, i, t] == x[q, i, i, t] + m.sum(x[q, i, k, t] for k in N[i]) for q in Q for i in V for t in T[:-1])
@@ -91,8 +91,22 @@ o2 = m.sum(z[t] for t in D)
 
 # Sequential Optimization
 m.minimize(o2)
-m.solve() 
-m.print_solution()
+s = m.solve() 
+# m.print_solution()
+
+# generate qubit swaps based on timestep and qubit pair from solutions to x
+swaps = [(q, i, j, t) for (q, i, j, t) in x if s[f"x_{q}_{i}_{j}_{t}"] == 1]
+
+# build new circuit by inserting the required gates at each timestep
+qc = QuantumCircuit(num_qubits)
+for t in T:
+    if (t % 5 != 0): # dummy timestep
+        # collect any swaps that need to happen at this timestep
+        curr_swaps = list(filter(lambda s: t == s[3] and s[1] != s[2], swaps))
+    else: # real timestep  
+        # copy the data from the original circuit
+        pass
+    pass
 
 """
 m.minimize(-o1)
