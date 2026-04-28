@@ -58,11 +58,11 @@ x = m.binary_var_dict(((q, i, j, t) for t in T[:-1] for i in V for j in N[i].uni
 m.add_constraints(w[q, i, t] == x[q, i, i, t] + m.sum(x[q, i, k, t] for k in N[i]) for q in Q for i in V for t in T[:-1])
 m.add_constraints(w[q, i, t] == x[q, i, i, t-1] + m.sum(x[q, k, i, t-1] for k in N[i]) for q in Q for i in V for t in T[1:])
 
-m.add_constraints(x[p := G[t][0], i, i, t] + x[p, i, j, t] >= y[t][(p, G[t][1]), (i, j)] for t in T for (i, j) in topology)
-m.add_constraints(x[q := G[t][1], j, i, t] + x[q, j, j, t] >= y[t][(G[t][0], q), (i, j)] for t in T for (i, j) in topology)
+# m.add_constraints(x[p := G[t][0], i, i, t] + x[p, i, j, t] >= y[t][(p, G[t][1]), (i, j)] for t in T for (i, j) in topology)
+# m.add_constraints(x[q := G[t][1], j, i, t] + x[q, j, j, t] >= y[t][(G[t][0], q), (i, j)] for t in T for (i, j) in topology)
 
-m.add_constraints(y[t][(G[t][0], G[t][1]), (i, j) >= 0] for t in T for (i, j) in topology)
-m.add_constraints(y[t][(p := G[t][0], q := G[t][1]), (i, j) >= w[p, i, t] + w[q, j, t] - 1] for t in T for (i, j) in topology)
+#m.add_constraints(y[t][(G[t][0], G[t][1]), (i, j) >= 0] for t in T for (i, j) in topology)
+#m.add_constraints(y[t][(p := G[t][0], q := G[t][1]), (i, j) >= w[p, i, t] + w[q, j, t] - 1] for t in T for (i, j) in topology)
 
 # the paper has the index of t as T[:-1] here, but i think we can restrict to V[:-1] since G is empty on dummy timesteps
 # TODO: do i need to multiply the indices to account for dummy timesteps
@@ -106,13 +106,15 @@ for t in T:
     if (t % 5 != 0): # dummy timestep
         # collect any swaps that need to happen at this timestep
         curr_swaps = list(filter(lambda s: t == s[3] and s[1] != s[2], swaps))
-        
+        assert(len(curr_swaps) <= 1)
     else: # real timestep  
         # copy the data from the original circuit
-        s = t // 5 # index in non-dummy timesteps
+        g1 = circuit.data[t // 5]
+        g2 = g1.replace(qubits = tuple(qc.qubits[circuit.find_bit(q)[0]] for q in g1.qubits))
+        qc.append(g2)
 
-        pass
-    pass
+print(circuit)
+print(qc)
 
 """
 m.minimize(-o1)
