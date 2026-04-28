@@ -53,9 +53,35 @@ y = [m.binary_var_matrix(G[t], topology, name = f"y{t}") for t in V]
 
 # TODO: still need to add constraints on y, this is the bit with mccormick constraints
 
+# each gate is impl. only exactly once at any given timestep
+m.add_constraints(m.sum(y[t][G[t][0], arc] for arc in topology) == 1 for t in V)
+m.add_constraints(m.sum(y[t][G[t][1], arc] for arc in topology) == 1 for t in V)
+
 # x_(q, i, j, t) = 1 iff qubit q is located at node i at time t and located at node j at time t+1
 N = [{j for (i, j) in topology if i == n} for n in V]
 x = m.binary_var_dict((q, i, j, t) for t in T[:-1] for i in V for j in N[i].union({i}) for q in Q)
+
+# McCormick Constraints from the paper. I don't really know if possible to do in a nice, one-liner :(
+for t in V:
+    p, q = G[t]
+    for (i, j) in topology:
+        yp = y[t][p, (i, j)]  # p assigned to node i on arc (i,j)
+        yq = y[t][q, (i, j)]  # q assigned to node i on arc (i,j)
+
+        # Basic lower bounds for both
+        m.add_constraint(yp >= 0)
+        m.add_constraint(yq >= 0)
+
+        if t < V[-1]: # use x variables for stronger upper bounds
+            m.add_constraint(yp <= x[p, i, i, t] + x[p, i, j, t]) 
+            m.add_constraint(yq <= x[q, i, i, t] + x[q, i, j, t])
+            m.add_constraint(yp >= w[p, i, t] + w[q, j, t] - 1)
+            m.add_constraint(yq >= w[q, i, t] + w[p, j, t] - 1)
+        else:         # fallback McCormick constraints for last timestep
+            m.add_constraint(yp <= w[p, i, t])
+            m.add_constraint(yp >= w[p, i, t] + w[q, j, t] - 1)
+            m.add_constraint(yq <= w[q, i, t])
+            m.add_constraint(yq >= w[q, i, t] + w[p, j, t] - 1)
 
 # TODO: missing the mcormick bit at the bottom of page 7
 m.add_constraints(w[q, i, t] == x[q, i, i, t] + m.sum(x[q, i, k, t] for k in N[i]) for q in Q for i in V for t in T[:-1])
