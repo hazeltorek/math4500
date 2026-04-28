@@ -91,11 +91,11 @@ m.add_constraints(y[t][G[t][0], (i, j)] == y[t][G[t][1], (j, i)] for t in V for 
 
 # the paper has the index of t as T[:-1] here, but i think we can restrict to V[:-1] since G is empty on dummy timesteps
 # TODO: do i need to multiply the indices to account for dummy timesteps
-m.add_constraints(x[G[t][0], i, j, t*5] == x[G[t][1], j, i, t*5] for t in V[:-1] for (i, j) in topology)
+m.add_constraints(x[G[t][0], i, j, t] == x[G[t][1], j, i, t] for t in V[:-1] for (i, j) in topology)
 
 # i believe there is a typo in the paper here: sum index should be G^t not Q^t
 # the paper has the index of t as T[:-1] here, but i think we can restrict to V[:-1] since G is empty on dummy timesteps
-m.add_constraints(m.sum(x[q, i, j, t*5] for q in set(Q).difference(set(G[t]))) == m.sum(x[p, j, i, t*5] for p in set(Q).difference(set(G[t]))) for t in V[:-1] for (i, j) in topology)
+m.add_constraints(m.sum(x[q, i, j, t] for q in set(Q).difference(set(G[t]))) == m.sum(x[p, j, i, t] for p in set(Q).difference(set(G[t]))) for t in V[:-1] for (i, j) in topology)
 
 # dummy timesteps (timesteps with no gates)
 D = [t for t in T[:-1] if (t % 5 != 0) or not G[t // 5]]
@@ -144,7 +144,7 @@ for t in T:
     if (t % 5 != 0): # dummy timestep
         # collect any swaps that need to happen at this timestep
         curr_swaps = list(filter(lambda s: t == s[3] and s[1] != s[2], swaps))
-        # assert(len(curr_swaps) <= 1)
+        assert(len(curr_swaps) <= 1)
     else: # real timestep  
         # copy the data from the original circuit
         g1 = circuit.data[t // 5]
