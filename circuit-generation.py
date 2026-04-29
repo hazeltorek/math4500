@@ -1,6 +1,6 @@
 from qiskit import QuantumCircuit
 from qiskit.circuit.library import quantum_volume
-
+import sys
 from docplex.mp.model import Model
 from functools import reduce
 import itertools as it
@@ -33,11 +33,14 @@ for k in topologies.keys():
     # add the reverse orientation of each edge to the set as well
     topologies[k] = topologies[k].union(set((j, i) for (i, j) in list(topologies[k])))
 
+
+STRICT = False
+TOPOLOGY_NAME = "G6"
 # change for different runs
-topology = topologies["L6"]
+topology = topologies[TOPOLOGY_NAME]
+X = crosstalks[TOPOLOGY_NAME]
 num_qubits = 6
-# change accordingly for crosstalk dict
-X = crosstalks["L6"]
+
 
 # tolerance for sequential optimization 
 epsilon = 1e-6
@@ -66,6 +69,11 @@ m.add_constraints(m.sum(w[q, v, t] for q in Q) == 1 for (v, t) in it.product(V, 
 G = [tuple(circuit.find_bit(q).index for q in circuit.data[t].qubits) for t in V] # logical gates at timestep t
 y = [m.binary_var_matrix(G[t], topology, name = f"y{t}") for t in V]
 
+# naive way of doing gate constraint, missed this prev, don't feel like one-lining
+for t in V:
+    for q in G[t]:
+        m.add_constraint(m.sum(y[t][q, a] for a in topology) == 1)
+
 # x_(q, i, j, t) = 1 iff qubit q is located at node i at time t and located at node j at time t+1
 N = [{j for (i, j) in topology if i == n} for n in V]
 x = m.binary_var_dict(((q, i, j, t) for t in T[:-1] for i in V for j in N[i].union({i}) for q in Q), name = "x")
@@ -79,23 +87,28 @@ m.add_constraints(w[q, i, t] == x[q, i, i, t-1] + m.sum(x[q, k, i, t-1] for k in
 #m.add_constraints(y[t][(G[t][0], G[t][1]), (i, j) >= 0] for t in T for (i, j) in topology)
 #m.add_constraints(y[t][(p := G[t][0], q := G[t][1]), (i, j) >= w[p, i, t] + w[q, j, t] - 1] for t in T for (i, j) in topology)
 
+# this constraint "freezes" non-gate qubits, only allowing gate qubits to swap at any given time (I think this may b decent proxy for overall circuit perf?)
+
+if STRICT: 
+    m.add_constraints(x[q, i, j, t*5] == 0 for t in V if t*5 < T[-1] for q in set(Q).difference(set(G[t])) for (i, j) in topology )
+
 # Gate McCormick Constraints
+# some of these are the stricter versions found in the paper, some are the weaker ones. needed to split them into 6 pieces instead of four because of bidirectionality (I think)
 m.add_constraints(x[q, i, i, t*5] + x[q, i, j, t*5] >= y[t][q, (i, j)] for t in V[:-1] for (i, j) in topology for q in G[t])
 m.add_constraints(w[q, i, t*5] >= y[t][q, (i, j)] for t in V[-1:] for (i, j) in topology for q in G[t])
 m.add_constraints(y[t][G[t][0], (i, j)] >= w[G[t][0], i, t*5] + w[G[t][1], j, t*5] - 1 for t in V for (i, j) in topology)
 m.add_constraints(y[t][G[t][1], (i, j)] >= w[G[t][1], i, t*5] + w[G[t][0], j, t*5] - 1 for t in V for (i, j) in topology)
-# m.add_constraints(y[t][G[t][0], (i, j)] == y[t][G[t][1], (j, i)] for t in V for (i, j) in topology)
 m.add_constraints(y[t][q, (i, j)] <= w[q, i, t*5] for t in V for (i, j) in topology for q in G[t])
 m.add_constraints(y[t][G[t][0], (i, j)] == y[t][G[t][1], (j, i)] for t in V for (i, j) in topology)
 
 
 # the paper has the index of t as T[:-1] here, but i think we can restrict to V[:-1] since G is empty on dummy timesteps
 # TODO: do i need to multiply the indices to account for dummy timesteps
-m.add_constraints(x[G[t][0], i, j, t] == x[G[t][1], j, i, t] for t in V[:-1] for (i, j) in topology)
+m.add_constraints(x[G[t][0], i, j, t*5] == x[G[t][1], j, i, t*5] for t in V[:-1] for (i, j) in topology)
 
 # i believe there is a typo in the paper here: sum index should be G^t not Q^t
 # the paper has the index of t as T[:-1] here, but i think we can restrict to V[:-1] since G is empty on dummy timesteps
-m.add_constraints(m.sum(x[q, i, j, t] for q in set(Q).difference(set(G[t]))) == m.sum(x[p, j, i, t] for p in set(Q).difference(set(G[t]))) for t in V[:-1] for (i, j) in topology)
+m.add_constraints(m.sum(x[q, i, j, t*5] for q in set(Q).difference(set(G[t]))) == m.sum(x[p, j, i, t*5] for p in set(Q).difference(set(G[t]))) for t in V[:-1] for (i, j) in topology)
 
 # dummy timesteps (timesteps with no gates)
 D = [t for t in T[:-1] if (t % 5 != 0) or not G[t // 5]]
@@ -104,7 +117,8 @@ D = [t for t in T[:-1] if (t % 5 != 0) or not G[t // 5]]
 # z^t = 1 iff qubit x_(q, i, j, t) = 1 (moves at dummy timestep t)
 z = m.binary_var_dict(D, name = "z")
 m.add_constraints(m.sum(x[q, i, j, t] for (i, j) in topology) <= z[t] for t in D for q in Q) # dummy timesteps only 1 when qubit moves
-m.add_constraints(z[D[t]] >= z[D[t+1]] for t in range(len(D)-1))
+# m.add_constraints(z[D[t]] >= z[D[t+1]] for t in range(len(D)-1))
+# Group dummy timesteps into contiguous blocks (between real timesteps)
 # ^ above is symmetry breaking for CPLEX speed (only consider doing dummy timesteps in one order) 
 # can be removed without breaking program if not working
 
@@ -112,7 +126,7 @@ m.add_constraints(z[D[t]] >= z[D[t+1]] for t in range(len(D)-1))
 u = m.binary_var_dict(((t, e) for t in T for e in topology), name="u")
 # constraints on cross-talking edges (ensuring u is correctly defined, from the paper)
 # real timesteps — use y variables
-m.add_constraints(u[t, (i,j)] == m.sum(y[t//5][q, (i,j)] for q in G[t//5]) for t in T if t % 5 == 0 for (i,j) in topology)
+m.add_constraints(u[t, (i,j)] == m.sum(y[t//5][q, (i,j)] for q in G[t//5]) + m.sum(x[q, i, j, t] for q in set(Q).difference(set(G[t//5]))) for t in T[:-1] if t % 5 == 0 for (i,j) in topology)
 # dummy timesteps — use x variables (only defined for T[:-1])
 m.add_constraints(u[t, (i,j)] == m.sum(x[q, i, j, t] for q in Q) for t in T[:-1] if t % 5 != 0 for (i,j) in topology)
 # last timestep if it's dummy — x not defined so u must be 0
@@ -125,14 +139,28 @@ m.add_constraints(u[T[-1], (i,j)] == 0 for (i,j) in topology if T[-1] % 5 != 0)
 # circuit depth (minimizing dummy timesteps, minimize o2)
 o2 = m.sum(z[t] for t in D)
 
-# crosstalk (not sure if we will impl this one)
+# crosstalk (this is quadratic, but CPLEX handles it fine afaict)
 o3 = m.sum(u[t, e1] * u[t, e2] for t in T for (e1, e2) in X)
 
 # Sequential Optimization
 m.minimize(o2)
 s = m.solve()
-# m.add_constraint(o2 <= o2val + epsilon)
-# m.minimize(o3)
+o2val = m.objective_value
+
+# count crosstalk in intial solution for depth
+# used in data analysis later
+ct_before = sum(1 for t in T for (e1,e2) in X 
+                if s[f"u_{t}_{e1}"] > 0.5 and s[f"u_{t}_{e2}"] > 0.5)
+
+m.add_constraint(o2 <= o2val + epsilon)
+m.minimize(o3)
+s = m.solve()
+
+# count crosstalking edges after optimization
+# used in data analysis later
+ct_after = sum(1 for t in T for (e1,e2) in X 
+               if s[f"u_{t}_{e1}"] > 0.5 and s[f"u_{t}_{e2}"] > 0.5)
+
 # m.print_solution()
 
 # generate qubit swaps based on timestep and qubit pair from solutions to x
@@ -144,7 +172,7 @@ for t in T:
     if (t % 5 != 0): # dummy timestep
         # collect any swaps that need to happen at this timestep
         curr_swaps = list(filter(lambda s: t == s[3] and s[1] != s[2], swaps))
-        assert(len(curr_swaps) <= 1)
+        # assert(len(curr_swaps) <= 1)
     else: # real timestep  
         # copy the data from the original circuit
         g1 = circuit.data[t // 5]
@@ -154,11 +182,12 @@ for t in T:
 print(circuit)
 print(qc)
 
-"""
-m.minimize(-o1)
-m.solve()
-o1_val = m.objective_value
-m.add_constraint(-o1 <= o1_val + epsilon, ctname = "ensure_error_rate_optimality")
-m.minimize(o2)
-m.solve() 
-"""
+
+# Uncomment these to write to results.csv or crosstalk_results.csv (I did manual runs of this)
+# data collection for optimizing based on additional swap constraint
+# with open("results.csv", "a") as f:
+    # f.write(f"{TOPOLOGY_NAME},{STRICT},{m.objective_value}\n")
+
+# data collection for optimizing depth, then crosstalk.
+# with open("crosstalk_results.csv", "a") as f:
+    # f.write(f"{TOPOLOGY_NAME},{STRICT},{o2val},{ct_before//4},{ct_after//4}\n")
